@@ -50,11 +50,13 @@ fi
 git clone $REPOSITORY_URL $INSTALL_DIR
 cd $INSTALL_DIR
 
-find systemd -type f | xargs -I% cp % /etc/%
+find systemd -type f | xargs -I% cp -v % /etc/%
 systemctl daemon-reload
 for unit in $(echo service timer); do
     systemctl enable "sync_ssh_iam_users.$unit"
     systemctl start "sync_ssh_iam_users.$unit"
+    systemctl enable "sync_ssh_iam_users_update.$unit"
+    systemctl start "sync_ssh_iam_users_update.$unit"
 done
 
 echo ""
