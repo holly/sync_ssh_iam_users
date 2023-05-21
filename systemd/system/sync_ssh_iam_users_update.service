@@ -1,0 +1,10 @@
+[Unit]
+Description=sync_ssh_iam_users update
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c "test -d /root/sync_ssh_iam_users && /root/sync_ssh_iam_users/update.sh"
+
+[Install]
+WantedBy=default.target
