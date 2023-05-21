@@ -3,9 +3,9 @@
 set -o pipefail
 set -C
 
-export PROC=10
-export UID_MIN=1001
-export UID_MAX=1100
+export PROC=1
+export UID_MIN=1101
+export UID_MAX=1200
 export OTHER_GID_MIN=1201
 
 if [[ -f "$HOME/.sync_ssh_iam_users.env" ]]; then
@@ -23,13 +23,13 @@ if [[ -z "$ADMINISTRATOR_GROUP" ]]; then
     export ADMINISTRATOR_GROUP="aws-administrator-group"
 fi
 if [[ -z "$NONE_SSH_GROUPS" ]]; then
-    export NONE_SSH_GROUPS="app-group,hoge"
+    export NONE_SSH_GROUPS=( "app-group" )
 fi
 if [[ -z "$NONE_SSH_TAG" ]]; then
     export NONE_SSH_TAG="NoneSSH"
 fi
 
-__user() {
+__exists_user() {
 
     local user_name=$1
     if id $user_name >/dev/null 2>&1; then
@@ -38,7 +38,7 @@ __user() {
     return 1
 }
 
-__iam_user() {
+__exists_iam_user() {
 
     local user_name=$1
     if aws iam get-user --user-name $user_name >/dev/null ; then
@@ -65,7 +65,7 @@ __mkuser() {
     while true; do
 
         if [[ $uid -eq $UID_MAX ]]; then
-            echo "WARN!! uid $UID_MAX can not make user."
+            echo "ERROR!! uid $UID_MAX can not make user."
             return 1
         fi
 
@@ -134,7 +134,7 @@ mkuser_from_iam() {
     local user_name=$1
 
     # check exists user
-    if __user $user_name; then
+    if __exists_user $user_name; then
         echo "$user_name is exists. skip."
         return 1
     fi
@@ -147,8 +147,7 @@ mkuser_from_iam() {
 
     # check beloging to non_ssh_group 
     local group_names=$(aws iam list-groups-for-user --user-name $user_name | jq -r ".Groups[].GroupName")
-    local none_ssh_groups=(${NONE_SSH_GROUPS//,/ })
-    for group_name in ${none_ssh_groups[@]}; do
+    for group_name in ${NONE_SSH_GROUPS[@]}; do
 
         if echo $group_names | grep -q $group_name; then
             echo "$user_name begongs to $group_name. skip."
@@ -179,8 +178,6 @@ mkuser_from_iam() {
         return 1
     fi
 
-    # execute add linux user
-
     # make other groups and registration
     for group_name in $group_names; do
         __mkgroup $group_name $OTHER_GID_MIN
@@ -188,7 +185,7 @@ mkuser_from_iam() {
  
     __mkuser $user_name $UID_MIN
     if [[ $? -ne 0 ]]; then
-        echo "$user: useradd failed."
+        echo "$user_name: useradd failed."
         return 1
     fi
 
@@ -206,19 +203,19 @@ deluser_from_srv() {
     local user_name=$1
 
     # check exists user
-    if ! __user $user_name; then
+    if ! __exists_user $user_name; then
         echo "$user_name is not exists. skip."
         return 1
     fi
 
     # exists iam user check
-    if  __iam_user $user_name; then
+    if  __exists_iam_user $user_name; then
         echo "$user_name is exists on aws iam. skip."
         return 1
     fi
 
     userdel -r $user_name
-    echo "$user_name is deleted."
+    echo "$user_name ($(id -u $user_name)) is deleted."
 }
 
 aws_iam_users() {
@@ -235,11 +232,10 @@ srv_users() {
             echo $user_name
         fi
     done
-
 }
 
-export -f __user
-export -f __iam_user
+export -f __exists_user
+export -f __exists_iam_user
 export -f __has_none_ssh_tag
 export -f __mkuser
 export -f __add_pubkey
@@ -249,6 +245,7 @@ export -f deluser_from_srv
 export -f aws_iam_users
 export -f srv_users
 
+# check require commands
 for cmd in $(echo "aws jq") ; do
     if ! which $cmd >/dev/null; then
         echo "ERROR: $cmd is not installed."
