@@ -1,0 +1,10 @@
+[Unit]
+Description=sync_ssh_iam_users execution
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c "test -d /root/sync_ssh_iam_users && /root/sync_ssh_iam_users/sync_ssh_iam_users.sh"
+
+[Install]
+WantedBy=default.target

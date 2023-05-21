@@ -1,0 +1,9 @@
+[Unit]
+Description=sync_ssh_iam_users timer
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
