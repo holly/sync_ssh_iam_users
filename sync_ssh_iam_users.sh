@@ -226,7 +226,7 @@ moduser_from_iam() {
         return 0
     fi
 
-    __activate_user
+    __activate_user $user_name
 
     # make other groups and registration
     for group_name in $group_names; do
