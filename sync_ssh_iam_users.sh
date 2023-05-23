@@ -79,7 +79,7 @@ __make_user() {
         useradd -u $uid -g $uid -s /bin/bash -m -d "/home/$user_name" $user_name
         chmod 700 "/home/$user_name"
         # set passwd
-        local pass=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16)
+        local pass=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 12 | head -n1)
         echo "${user_name}:${pass}" | chpasswd
         break
     done
