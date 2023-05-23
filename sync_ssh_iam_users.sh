@@ -4,9 +4,9 @@ set -o pipefail
 set -C
 
 export PROC=1
-export UID_MIN=1101
-export UID_MAX=1200
-export OTHER_GID_MIN=1201
+export UID_MIN=2001
+export UID_MAX=2100
+export OTHER_GID_MIN=2101
 
 if [[ -f "$HOME/.sync_ssh_iam_users.env" ]]; then
     source "$HOME/.sync_ssh_iam_users.env"
@@ -79,7 +79,7 @@ __make_user() {
         useradd -u $uid -g $uid -s /bin/bash -m -d "/home/$user_name" $user_name
         chmod 700 "/home/$user_name"
         # set passwd
-        local pass=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 12 | head -n1)
+        local pass=$(date +%s | sha256sum | awk '{print $1}' |  head -c12)
         echo "${user_name}:${pass}" | chpasswd
         break
     done
@@ -335,6 +335,10 @@ aws_iam_users() {
 users() {
 
     for user_name in $(cat /etc/passwd | cut -d: -f1); do
+
+        if [[ $username =~ ^(ssm-user|ec2-user|ubuntu|ec2-instance-connect)$ ]]; then
+            continue
+        fi
 
         local uid=$(id -u $user_name)
         if [[ $uid -ge $UID_MIN ]] && [[ $uid -le $UID_MAX ]]; then
