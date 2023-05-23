@@ -16,3 +16,4 @@ if [[ "$local_hash" == "$remote_hash" ]]; then
 fi
 
 git pull origin $(git rev-parse --abbrev-ref HEAD)
+git pull --tags
