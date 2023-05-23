@@ -366,7 +366,7 @@ done
 
 echo "> start add users"
 iam_users=$(aws_iam_users)
-echo $iam_users | xargs -I% -t -P$PROC  bash -c "adduser_from_iam %"
+echo "$iam_users" | xargs -I% -t -P$PROC  bash -c "adduser_from_iam %"
 echo ""
 echo "> start delete users"
 users | xargs -I% -t -P$PROC  bash -c "deluser_from_local %"
