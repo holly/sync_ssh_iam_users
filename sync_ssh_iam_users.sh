@@ -29,6 +29,8 @@ if [[ -z "$NONE_SSH_TAG" ]]; then
     export NONE_SSH_TAG="NoneSSH"
 fi
 
+REQUIRE_COMMANDS=("jq" "aws")
+
 __exists_user() {
 
     local user_name=$1
@@ -86,6 +88,11 @@ __add_pubkey() {
     local user_name=$1
     local key="$2"
 
+    if ! __exists_user $user_name; then
+        echo "$user_name is not exists. skip."
+        return 1
+    fi
+
     local ssh_dir="/home/$user_name/.ssh"
     if [[ ! -d $ssh_dir ]]; then
         install -v -o $user_name -g $user_name -m 0700 -d $ssh_dir
@@ -95,6 +102,26 @@ __add_pubkey() {
     fi
     echo "$key" >>"$ssh_dir/authorized_keys"
 }
+
+__del_pubkey() {
+
+    local user_name=$1
+
+    if ! __exists_user $user_name; then
+        echo "$user_name is not exists. skip."
+        return 1
+    fi
+
+    local ssh_dir="/home/$user_name/.ssh"
+    if [[ ! -d $ssh_dir ]]; then
+        echo "$ssh_dir is not exists. skip."
+        return 1
+    fi
+    rm -v "$key" >>"$ssh_dir/authorized_keys"
+}
+
+
+
 
 __mkgroup() {
 
@@ -128,6 +155,85 @@ EOL
     done
 
 }
+
+moduser_from_iam() {
+
+    local user_name=$1
+
+    local deactivate=0
+
+    # check exists user
+    if ! __exists_user $user_name; then
+        echo "$user_name is not exists. skip."
+        return 1
+    fi
+
+    # exists iam user check
+    if !  __exists_iam_user $user_name; then
+        echo "$user_name is not exists on aws iam. skip."
+        return 1
+    fi
+
+    # check having $NONE_SSH_TAG
+    if  __has_none_ssh_tag $user_name; then
+        echo "$user_name has $NONE_SSH_TAG tag."
+        deactivate=1
+    fi
+
+    # check beloging to non_ssh_group 
+    local group_names=$(aws iam list-groups-for-user --user-name $user_name | jq -r ".Groups[].GroupName")
+    for group_name in ${NONE_SSH_GROUPS[@]}; do
+
+        if echo $group_names | grep -q $group_name; then
+            echo "$user_name begongs to $group_name."
+            deactivate=1
+        fi
+    done
+
+    if [[ $deactivate -eq 1 ]]; then
+        __del_pubkey $user_name
+        pkill -U $(id -u $user_name)
+        echo "$user_name is deactived."
+        return 0
+    fi
+
+    # check register public key
+    local res=$(aws iam list-ssh-public-keys --user-name $user_name | jq -r ".SSHPublicKeys[].SSHPublicKeyId")
+    if [[ -z "$res" ]]; then
+        echo "$user_name has not SSH Public keys. skip."
+        return 1
+    fi
+
+    declare -a pubkeys
+    for key_id in $res; do
+
+        local pubkey=$(aws iam get-ssh-public-key --encoding SSH --user-name $user_name --ssh-public-key-id $key_id | jq -r '.SSHPublicKey | if .Status == "Active" then .SSHPublicKeyBody else empty end')
+        # like array_push
+        if [[ -n "$pubkey" ]]; then
+            pubkeys=(${pubkeys[@]} "$pubkey")
+        fi
+    done
+    # check array length
+    local len=${#pubkeys[@]} 
+    if [[ $len -eq 0 ]]; then
+        echo "$user_name has not active SSH Public keys. skip."
+        return 1
+    fi
+
+    # make other groups and registration
+    for group_name in $group_names; do
+        __mkgroup $group_name $OTHER_GID_MIN
+    done
+ 
+    # for ssh setting
+    for key in "${pubkeys[@]}"; do
+       __add_pubkey $user_name "$key"
+    done
+
+    usermod -G $(echo $group_names | perl -nlpe 's/\s+/,/g') $user_name
+    echo "$user_name is modified."
+}
+
 
 mkuser_from_iam() {
 
@@ -198,7 +304,7 @@ mkuser_from_iam() {
     echo "$user_name is added."
 }
 
-deluser_from_srv() {
+deluser_from_local() {
 
     local user_name=$1
 
@@ -223,7 +329,7 @@ aws_iam_users() {
     aws iam list-users | jq -r ".Users[].UserName"
 }
 
-srv_users() {
+users() {
 
     for user_name in $(cat /etc/passwd | cut -d: -f1); do
 
@@ -239,14 +345,14 @@ export -f __exists_iam_user
 export -f __has_none_ssh_tag
 export -f __mkuser
 export -f __add_pubkey
+export -f __del_pubkey
 export -f __mkgroup
 export -f mkuser_from_iam
-export -f deluser_from_srv
-export -f aws_iam_users
-export -f srv_users
+export -f moduser_from_iam
+export -f deluser_from_local
 
 # check require commands
-for cmd in $(echo "aws jq") ; do
+for cmd in "${REQUIRE_COMMANDS[@]}" ; do
     if ! which $cmd >/dev/null; then
         echo "ERROR: $cmd is not installed."
         exit 1
@@ -254,10 +360,11 @@ for cmd in $(echo "aws jq") ; do
 done
 
 echo "> start mkuser"
-aws_iam_users | xargs -I% -t -P$PROC  bash -c "mkuser_from_iam %"
+iam_users=$(aws_iam_users)
+echo $iam_users | xargs -I% -t -P$PROC  bash -c "mkuser_from_iam %"
 echo ""
 echo "> start deluser"
-srv_users | xargs -I% -t -P$PROC  bash -c "deluser_from_srv %"
+users | xargs -I% -t -P$PROC  bash -c "deluser_from_local %"
 
 echo ""
 echo ">> done."
