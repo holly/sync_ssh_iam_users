@@ -59,7 +59,7 @@ __has_none_ssh_tag() {
     return 1
 }
 
-__mkuser() {
+__make_user() {
 
     local user_name=$1
     local uid=$2
@@ -80,8 +80,11 @@ __mkuser() {
         chmod 700 "/home/$user_name"
         break
     done
-}
 
+    # set passwd
+    local pass=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16)
+    echo "${user_name}:${pass}" | chpasswd
+}
 
 __add_pubkey() {
 
@@ -121,9 +124,37 @@ __del_pubkey() {
 }
 
 
+__activate_user() {
+
+    local user_name=$1
+
+    if ! __exists_user $user_name; then
+        echo "$user_name is not exists. skip."
+        return 1
+    fi
+
+    local home_dir="/home/$user_name"
+    usermod -U $user_name
+    chmod 700 $home_dir
+}
+
+__deactivate_user() {
+
+    local user_name=$1
+
+    if ! __exists_user $user_name; then
+        echo "$user_name is not exists. skip."
+        return 1
+    fi
+
+    local home_dir="/home/$user_name"
+    pkill -U $(id -u $user_name)
+    usermod -L $user_name
+    chmod 0 $home_dir
+}
 
 
-__mkgroup() {
+__make_group() {
 
     local group_name=$1
     local gid=$2
@@ -159,7 +190,6 @@ EOL
 moduser_from_iam() {
 
     local user_name=$1
-
     local deactivate=0
 
     # check exists user
@@ -185,49 +215,22 @@ moduser_from_iam() {
     for group_name in ${NONE_SSH_GROUPS[@]}; do
 
         if echo $group_names | grep -q $group_name; then
-            echo "$user_name begongs to $group_name."
+            echo "$user_name belongs to $group_name."
             deactivate=1
         fi
     done
 
     if [[ $deactivate -eq 1 ]]; then
-        __del_pubkey $user_name
-        pkill -U $(id -u $user_name)
+        __deactivate_user $user_name
         echo "$user_name is deactived."
         return 0
     fi
 
-    # check register public key
-    local res=$(aws iam list-ssh-public-keys --user-name $user_name | jq -r ".SSHPublicKeys[].SSHPublicKeyId")
-    if [[ -z "$res" ]]; then
-        echo "$user_name has not SSH Public keys. skip."
-        return 1
-    fi
-
-    declare -a pubkeys
-    for key_id in $res; do
-
-        local pubkey=$(aws iam get-ssh-public-key --encoding SSH --user-name $user_name --ssh-public-key-id $key_id | jq -r '.SSHPublicKey | if .Status == "Active" then .SSHPublicKeyBody else empty end')
-        # like array_push
-        if [[ -n "$pubkey" ]]; then
-            pubkeys=(${pubkeys[@]} "$pubkey")
-        fi
-    done
-    # check array length
-    local len=${#pubkeys[@]} 
-    if [[ $len -eq 0 ]]; then
-        echo "$user_name has not active SSH Public keys. skip."
-        return 1
-    fi
+    __activate_user
 
     # make other groups and registration
     for group_name in $group_names; do
-        __mkgroup $group_name $OTHER_GID_MIN
-    done
- 
-    # for ssh setting
-    for key in "${pubkeys[@]}"; do
-       __add_pubkey $user_name "$key"
+        __make_group $group_name $OTHER_GID_MIN
     done
 
     usermod -G $(echo $group_names | perl -nlpe 's/\s+/,/g') $user_name
@@ -235,7 +238,7 @@ moduser_from_iam() {
 }
 
 
-mkuser_from_iam() {
+adduser_from_iam() {
 
     local user_name=$1
 
@@ -256,7 +259,7 @@ mkuser_from_iam() {
     for group_name in ${NONE_SSH_GROUPS[@]}; do
 
         if echo $group_names | grep -q $group_name; then
-            echo "$user_name begongs to $group_name. skip."
+            echo "$user_name belongs to $group_name. skip."
             return 1
         fi
     done
@@ -286,10 +289,10 @@ mkuser_from_iam() {
 
     # make other groups and registration
     for group_name in $group_names; do
-        __mkgroup $group_name $OTHER_GID_MIN
+        __make_group $group_name $OTHER_GID_MIN
     done
  
-    __mkuser $user_name $UID_MIN
+    __make_user $user_name $UID_MIN
     if [[ $? -ne 0 ]]; then
         echo "$user_name: useradd failed."
         return 1
@@ -343,11 +346,13 @@ users() {
 export -f __exists_user
 export -f __exists_iam_user
 export -f __has_none_ssh_tag
-export -f __mkuser
+export -f __make_user
 export -f __add_pubkey
+export -f __make_group
 export -f __del_pubkey
-export -f __mkgroup
-export -f mkuser_from_iam
+export -f __activate_user
+export -f __deactivate_user
+export -f adduser_from_iam
 export -f moduser_from_iam
 export -f deluser_from_local
 
@@ -359,11 +364,11 @@ for cmd in "${REQUIRE_COMMANDS[@]}" ; do
     fi
 done
 
-echo "> start mkuser"
+echo "> start add users"
 iam_users=$(aws_iam_users)
-echo $iam_users | xargs -I% -t -P$PROC  bash -c "mkuser_from_iam %"
+echo $iam_users | xargs -I% -t -P$PROC  bash -c "adduser_from_iam %"
 echo ""
-echo "> start deluser"
+echo "> start delete users"
 users | xargs -I% -t -P$PROC  bash -c "deluser_from_local %"
 
 echo ""
