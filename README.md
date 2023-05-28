@@ -1,4 +1,5 @@
 # sync_ssh_iam_users
+
 easy iam-user and ec2 linux user sync script. inspire https://github.com/widdix/aws-ec2-ssh
 
 # Install
@@ -51,7 +52,7 @@ see https://github.com/holly/sync_ssh_iam_users/blob/main/example/policy.json .
 
 # Tips
 
-# sudoers group
+## sudoers group
 
 If iam-user belong to `aws-administrator-group`, sudo will be enabled.
 
@@ -63,7 +64,7 @@ Create /root/.sync_ssh_iam_users.env and write the following
 export ADMINISTRATOR_GROUP="your-administrator-group-name"
 ```
 
-# none-sync group
+## none-sync group
 
 If iam-user belong to `app-group`, no local user is created. If already created, it will be disabled.
 
@@ -75,9 +76,19 @@ Create /root/.sync_ssh_iam_users.env and write the following
 export NONE_SSH_GROUPS=("non-ssh-group" "designer-group")
 ```
 
-# none-sync user
+## none-sync user
 
 If the `NoneSSH` tag is assigned to the iam user, no local user is created. If already created, it will be disabled.
+
+## execution speed up
+
+Setting PROC environ variable enables parallel processing of user creation, deletion, etc., to improve processing speed.
+
+Standard is set to 1.
+
+```
+export PROC=10
+```
 
 
 # License
